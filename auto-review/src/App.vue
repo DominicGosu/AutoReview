@@ -16,7 +16,7 @@
   <button class="btn button-primary" @click="getCode">
     Review
   </button>
-  <button class=" btn button-primary">Clear</button>
+  <button class=" btn button-primary" @click="clearCode">Clear</button>
   <button class=" btn button-primary" @click="viewDataParse">Xem kết quả đọc file</button>
 </div>
   <div class="content-editor">
@@ -79,6 +79,12 @@ var esprima = require('esprima');
      ),
 
     methods: {
+      clearCode()
+      {
+        let me = this;
+        me.code = '';
+        me.$refs.inputfile.value = '';
+      },
       viewDataParse()
       {
         let me = this;
@@ -111,6 +117,7 @@ var esprima = require('esprima');
       },
       readFile(file) {
       let me = this;
+      me.$refs.inputfile.value = '';
       const reader = new FileReader();
         reader.onload = (res) => {
           me.code = res.target.result;
