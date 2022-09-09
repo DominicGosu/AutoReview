@@ -11,6 +11,10 @@ export default {
     test(param1,param2)
     {
     
+    },
+    testdemo2()
+    {
+      var test;
     }
   },
 }

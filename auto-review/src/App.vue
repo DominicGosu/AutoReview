@@ -3,16 +3,24 @@
   <div class="navbar">
     <div class="logo">AutoReview</div>
   </div>
+  <div class="main-content">
+    <div class="file-list" v-if="filesList.length > 0">
+      <tree :data="filesPaths" v-model:activeFile="activeFile" @onActiveFile="reviewSingleFile"></tree>
+  </div>
+  <div class="content-view">
   <div class="drop-zone" @drop.prevent="onDropFile"
   >
       <div class="title-drop">Kéo và thả file vào đây</div>
       <div class="title-or">hoặc</div>
       <label class="drop-zone-button" data-message="selectFiles">
         Chọn file
-        <input type="file" @change="inputFile" class="file-input" ref="inputfile"/>
+        <input type="file" @change="inputFile" class="file-input" ref="inputfile" webkitdirectory multiple/>
       </label>
 </div>
 <div class="button-navbar">
+  <button class="btn button-primary" @click="reviewMultiple">
+    Review nhiều file
+  </button>
   <button class="btn button-primary" @click="getCode">
     Review
   </button>
@@ -30,10 +38,15 @@
   <div class="message-view">
     <div class="" v-for="(item,index) in errorList" :key="index">
       <div :class="{'error-message':item.type=='error','warning-message':item.type=='warning'}">
-        {{item.message}}
+        <div class="message-item">
+        <div>{{`Dòng ${item.line} : `}}{{item.message}}</div>
+        <div class="message-file-link" @click="readFile(item.file)">{{item.file.webkitRelativePath}}</div>
+      </div>
       </div>
     </div>
   </div>
+</div>
+</div>
 </div>
 </template>
 
@@ -48,10 +61,56 @@
   import 'prismjs/components/prism-clike';
   import 'prismjs/components/prism-javascript';
   import 'prismjs/themes/prism-tomorrow.css'; // import syntax highlighting styles
+  import tree from '@/components/tree/treeList';
 var esprima = require('esprima');
   export default {
     components: {
       PrismEditor,
+      tree
+    },
+    computed:{
+      filesPaths(){
+        let me = this;
+        let files = {};
+        if(me.filesList.length > 0)
+        {
+          _.forEach(me.filesList,(item)=>{
+            let splitPath =item.webkitRelativePath.split('/');
+            let currentFile = null;
+            for(let i =0;i<splitPath.length;i++)
+            {
+              if(i == 0)
+              {
+                let root = splitPath[i];
+                files.name = root;
+                files.fileItem = item;
+                currentFile = files;
+              }
+              else if(currentFile)
+              {
+                let path = splitPath[i];
+                currentFile.children = currentFile.children || [];
+                let findItem = currentFile.children.find(file =>{
+                  return file.name == path;
+                });
+                if(!findItem)
+                {
+                  let fileItem = {name:path,fileItem: item};
+                  currentFile.children.push(fileItem);
+                  currentFile = fileItem;
+                }
+                else
+                {
+                  currentFile = findItem;
+                }
+              }
+
+            }
+            
+          });
+        }
+        return files;
+      }
     },
     mounted()
     {
@@ -75,15 +134,36 @@ var esprima = require('esprima');
         primaData:null,
         showParseData:false,
         errorList:[],
+        filesList:[],
+        activeFile: null,
       }
      ),
 
     methods: {
+      reviewMultiple()
+      {
+        let me = this;
+        me.errorList = [];
+        if(me.filesList && me.filesList.length > 0)
+        {
+          _.forEach(me.filesList,async (item)=>{
+            await me.reviewSingleFile(item,false);
+          });
+          me.readFile(me.activeFile);
+        }
+      },
+      async reviewSingleFile(file,resetError)
+      {
+        let me = this;
+        let source = await me.readFile(file);
+        me.getCode(source,resetError);
+      },
       clearCode()
       {
         let me = this;
         me.code = '';
         me.$refs.inputfile.value = '';
+        me.primaData = '';
       },
       viewDataParse()
       {
@@ -98,9 +178,11 @@ var esprima = require('esprima');
       {
         let me = this;
         let files = event.dataTransfer.files;
+        me.filesList = files;
         if(files)
         {
-          me.readFile(files[0]);
+          me.activeFile = files[0];
+          me.readFile(me.activeFile);
         }
       },
       highlighter(code) {
@@ -110,25 +192,39 @@ var esprima = require('esprima');
       {
         let me = this;
         let files = event.target.files;
+        me.filesList = files;
         if(files)
         {
-          me.readFile(files[0]);
+          me.activeFile = files[0];
+          me.readFile(me.activeFile);
         }
       },
-      readFile(file) {
-      let me = this;
-      me.$refs.inputfile.value = '';
-      const reader = new FileReader();
+      readFileText(file) {
+        let me = this;
+        // Always return a Promise
+        return new Promise((resolve, reject) => {
+        const reader = new FileReader();
         reader.onload = (res) => {
+          me.currentFile = file;
           me.code = res.target.result;
+          resolve(res.target.result);
         };
-        reader.onerror = (err) => console.log(err);
+        reader.onerror = (err) => reject(err);
         reader.readAsText(file);
+        });
+      },
+      async readFile(file) {
+      let me = this;
+      return await me.readFileText(file);
     },
-      getCode()
+      getCode(code,resetErrorList = true)
       {
         let me = this;
-        let source = me.code;
+        if(resetErrorList)
+        {
+          me.errorList = [];
+        }
+        let source = code || me.code;
         let options = {"attachComment":false,
         "range":false,
         "loc":true,
@@ -142,7 +238,6 @@ var esprima = require('esprima');
       reviewCode()
       {
         let me = this;
-          me.errorList = [];
           var functions = [];
           var variables = [];
           var IfStatements = [];
@@ -185,7 +280,9 @@ var esprima = require('esprima');
                   {
                     this.errorList.push({
                       type:"warning",
-                      message:`Dòng ${test[i].loc.start.line} : Giá trị ${test[i].id.name} chưa kiểm tra khác null`,
+                      line:test[i].loc.start.line,
+                      message:`Giá trị ${test[i].id.name} chưa kiểm tra khác null`,
+                      file: me.currentFile
                     });
                   }
                 }
@@ -336,5 +433,29 @@ var esprima = require('esprima');
     align-items: center;
     padding: 0 20px;
     margin-top: 10px;
+  }
+  .main-content
+  {
+    display:flex;
+  }
+  .content-view
+  {
+    flex:1;
+  }
+  .file-list
+  {
+    width: 300px;
+    max-height:calc(100vh - 30px);
+    padding:20px;
+    
+  }
+  .message-item
+  {
+    display:flex;
+    justify-content: space-between;
+    width:100%;
+  }
+  .message-file-link{
+    text-decoration: underline;
   }
 </style>
